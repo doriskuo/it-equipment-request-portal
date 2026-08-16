@@ -1,0 +1,273 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RoleType {
+  EMPLOYEE
+  MANAGER
+  IT
+  PROCUREMENT
+  ACCOUNTING
+}
+
+enum ProcurementPurpose {
+  NEW_EMPLOYEE
+  EQUIPMENT_REPLACEMENT
+  EQUIPMENT_FAILURE
+  JOB_REQUIREMENT
+  PROJECT_REQUIREMENT
+  EXPANSION
+  OTHER
+}
+
+enum ProcurementStatus {
+  DRAFT
+  PENDING_DEPARTMENT_MANAGER_APPROVAL
+  PENDING_SENIOR_MANAGER_APPROVAL
+  PENDING_IT_REVIEW
+  PENDING_PROCUREMENT
+  PROCUREMENT_IN_PROGRESS
+  PENDING_ACCOUNTING_CONFIRMATION
+  PENDING_DELIVERY
+  PENDING_RECEIPT_CONFIRMATION
+  RETURNED_TO_REQUESTER
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum ItemDeliveryStatus {
+  PENDING       // 等待到貨（預設）
+  DELIVERED     // 已到貨
+  OUT_OF_STOCK  // 缺貨取消
+}
+
+model EquipmentCategory {
+  id          String               @id @default(cuid())
+  name        String               // e.g. "Notebook", "Desktop PC"
+  parentId    String?              // Supports hierarchy; null = top-level
+  parent      EquipmentCategory?   @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    EquipmentCategory[]  @relation("CategoryHierarchy")
+  products    EquipmentProduct[]
+  isActive    Boolean              @default(true)
+}
+
+model EquipmentProduct {
+  id              String              @id @default(cuid())
+  categoryId      String
+  category        EquipmentCategory   @relation(fields: [categoryId], references: [id])
+  name            String              // e.g. "Dell Latitude 7450"
+  specification   String?             // e.g. "i7/16GB/512GB"
+  referencePrice  Decimal             @db.Decimal(12, 2)
+  isActive        Boolean             @default(true)
+  requestItems    RequestItem[]
+  revisionItems   RequestRevisionItem[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id])
+  managerId     String?
+  manager       User?     @relation("ManagerHierarchy", fields: [managerId], references: [id])
+  subordinates  User[]    @relation("ManagerHierarchy")
+  roles         UserRole[]
+  requests      ProcurementRequest[] @relation("RequesterRelation")
+  actions       WorkflowAction[]
+  notifications Notification[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  users     User[]
+}
+
+model UserRole {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id])
+  role    RoleType
+
+  @@unique([userId, role])
+}
+
+model ProcurementRequest {
+  id                    String             @id @default(cuid())
+  requestNumber         String             @unique
+  requesterId           String
+  requester             User               @relation("RequesterRelation", fields: [requesterId], references: [id])
+  departmentSnapshot    String
+  requestDate           DateTime           @default(now())
+  desiredDeliveryDate   DateTime
+  purpose               ProcurementPurpose
+  purposeNote           String?            // Required when purpose = OTHER
+  remark                String?
+  estimatedTotalAmount  Decimal            @db.Decimal(12, 2)
+  status                ProcurementStatus  @default(DRAFT)
+  currentRevisionNo     Int                @default(1)
+
+  departmentApproverId  String?
+  seniorApproverId      String?
+  currentAssigneeId     String?
+  currentHandlerRole    RoleType?
+
+  items                 RequestItem[]
+  revisions             RequestRevision[]
+  actions               WorkflowAction[]
+  notifications         Notification[]
+  procurementRecord     ProcurementRecord?
+  accountingConfirmation AccountingConfirmation?
+  deliveryRecord        DeliveryRecord?
+
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+}
+
+model RequestItem {
+  id                  String              @id @default(cuid())
+  requestId           String
+  request             ProcurementRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  lineNo              Int
+
+  // Link to Equipment Master (null = Other / manual entry)
+  equipmentProductId  String?
+  equipmentProduct    EquipmentProduct?   @relation(fields: [equipmentProductId], references: [id])
+
+  // Snapshot at time of request (immutable after creation)
+  categorySnapshot    String              // e.g. "Notebook"
+  itemNameSnapshot    String              // e.g. "Dell Latitude 7450"
+  specSnapshot        String?             // e.g. "i7/16GB/512GB"
+
+  quantity            Int
+  estimatedUnitPrice  Decimal             @db.Decimal(12, 2)  // From referencePrice or manual (Other)
+  lineSubtotal        Decimal             @db.Decimal(12, 2)  // System-calculated
+
+  // Item-level delivery tracking (interface for external GR module)
+  deliveryStatus      ItemDeliveryStatus  @default(PENDING)
+  deliveryNote        String?             // e.g. 缺貨原因
+  receiptConfirmedAt  DateTime?           // Applicant signed receipt time
+}
+
+model RequestRevision {
+  id                   String                 @id @default(cuid())
+  requestId            String
+  request              ProcurementRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  revisionNo           Int
+  purpose              ProcurementPurpose
+  purposeNote          String?
+  desiredDeliveryDate  DateTime
+  remark               String?
+  estimatedTotalAmount Decimal                @db.Decimal(12, 2)
+  submittedAt          DateTime               @default(now())
+  items                RequestRevisionItem[]
+
+  @@unique([requestId, revisionNo])
+}
+
+model RequestRevisionItem {
+  id                  String              @id @default(cuid())
+  revisionId          String
+  revision            RequestRevision     @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  lineNo              Int
+
+  // Link to Equipment Master (null = Other / manual entry)
+  equipmentProductId  String?
+  equipmentProduct    EquipmentProduct?   @relation(fields: [equipmentProductId], references: [id])
+
+  // Snapshot at time of revision
+  categorySnapshot    String
+  itemNameSnapshot    String
+  specSnapshot        String?
+
+  quantity            Int
+  estimatedUnitPrice  Decimal             @db.Decimal(12, 2)
+  lineSubtotal        Decimal             @db.Decimal(12, 2)
+}
+
+model WorkflowAction {
+  id          String             @id @default(cuid())
+  requestId   String
+  request     ProcurementRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  revisionNo  Int
+  actorId     String
+  actor       User               @relation(fields: [actorId], references: [id])
+  actorRole   RoleType
+  action      String
+  fromStatus  ProcurementStatus
+  toStatus    ProcurementStatus
+  comment     String?
+  createdAt   DateTime           @default(now())
+}
+
+model ProcurementRecord {
+  id                String              @id @default(cuid())
+  requestId         String              @unique
+  request           ProcurementRequest  @relation(fields: [requestId], references: [id])
+  purchaserId       String
+  supplierName      String
+  purchaseDate      DateTime
+  poNumber          String
+  actualTotalAmount Decimal             @db.Decimal(12, 2)
+  items             ProcurementItem[]
+  createdAt         DateTime            @default(now())
+}
+
+model ProcurementItem {
+  id                  String             @id @default(cuid())
+  procurementRecordId String
+  procurementRecord   ProcurementRecord  @relation(fields: [procurementRecordId], references: [id], onDelete: Cascade)
+  lineNo              Int
+  itemName            String
+  quantity            Int
+  actualUnitPrice     Decimal            @db.Decimal(12, 2)
+  lineSubtotal        Decimal            @db.Decimal(12, 2)
+}
+
+model AccountingConfirmation {
+  id             String              @id @default(cuid())
+  requestId      String              @unique
+  request        ProcurementRequest  @relation(fields: [requestId], references: [id])
+  accountantId   String
+  invoiceNumber  String
+  budgetCode     String?
+  confirmedAt    DateTime            @default(now())
+  note           String?
+}
+
+model DeliveryRecord {
+  id            String              @id @default(cuid())
+  requestId     String              @unique
+  request       ProcurementRequest  @relation(fields: [requestId], references: [id])
+  deliveredById String
+  receivedBy    String
+  deliveryDate  DateTime            @default(now())
+  remark        String?
+}
+
+enum NotificationType {
+  INFO
+  ACTION_REQUIRED
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId String
+  request   ProcurementRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType   @default(INFO)
+  isRead    Boolean            @default(false)
+  createdAt DateTime           @default(now())
+}
+

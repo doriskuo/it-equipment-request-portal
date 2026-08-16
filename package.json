@@ -1,0 +1,19 @@
+{
+  "name": "it-procurement-workflow-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd apps/api && npm run start:dev & cd apps/web && npm run dev"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "@prisma/client": "^5.22.0",
+    "@types/node": "^26.2.0",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

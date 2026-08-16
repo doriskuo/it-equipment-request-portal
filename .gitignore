@@ -1,0 +1,46 @@
+# 1. 依賴套件 (Dependencies)
+node_modules/
+
+# 2. 環境變數檔 (Environment Variables)
+.env
+.env.*
+!.env.example
+
+# 3. 編譯與建置產物 (Build Outputs)
+dist/
+build/
+out/
+.turbo/
+
+# 4. 系統檔案 (OS Files)
+.DS_Store
+Thumbs.db
+
+# 5. 編輯器與 IDE 設定檔 (Editor / IDE)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 6. 日誌與除錯檔案 (Logs & Debugging)
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 7. 測試與覆蓋率報告 (Testing)
+coverage/
+.nyc_output/
+
+# 8. 其他專案特定排除
+# (若有其他不需要追蹤的暫存檔案可加在此處)*.docx
